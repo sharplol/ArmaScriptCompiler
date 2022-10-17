@@ -138,7 +138,6 @@ int main(int argc, char* argv[]) {
         return inp;
     });
 
-
     std::vector<std::filesystem::path> inputDirs;
     for (std::string &inputDir : json["inputDirs"].get<std::vector<std::string>>()) {
         inputDirs.push_back(std::filesystem::path(inputDir));
@@ -190,8 +189,20 @@ int main(int argc, char* argv[]) {
     //compileRecursive("T:/a3");
 
     //compileRecursive("P:/test/");
+
     for (std::filesystem::path &inputDir : inputDirs) {
         compileRecursive(inputDir);
+    }
+
+    if (json.contains("decompilePaths")) {
+        for (const std::string& str : json["decompilePaths"].get<std::vector<std::string>>()) {
+            std::ifstream ifs{ str, std::ios::in | std::ios::binary };
+            CompiledCodeData compiledCodeData = ScriptSerializer::binaryToCompiled(ifs);
+            std::ofstream ofs{ (outputDir / str).replace_extension("sqfasm"), std::ios::out | std::ios::binary };
+            ScriptSerializer::compiledToHumanReadable(compiledCodeData, ofs);
+            ifs.close();
+            ofs.close();
+        }
     }
 
     workWait.unlock();
