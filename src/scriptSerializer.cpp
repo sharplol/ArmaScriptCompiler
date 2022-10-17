@@ -237,9 +237,14 @@ CompiledCodeData ScriptSerializer::binaryToCompiled(std::istream& input) {
         uint32_t pos = input.tellg();
 
         switch (type) {
-
+            case SerializedBlockType::commandNameDirectory: {
+                readCommandNamesCompressed(output, input);
+            } break;
             case SerializedBlockType::constant: {
                 readConstants(output, input);
+            } break;
+            case SerializedBlockType::constantCompressed: {
+                readConstantsCompressed(output, input);
             } break;
             case SerializedBlockType::locationInfo: {
                 auto locCount = readT<uint16_t>(input);
@@ -499,6 +504,49 @@ void ScriptSerializer::writeConstants(const CompiledCodeData& code, std::ostream
     }
 }
 
+void ScriptSerializer::readConstantsCompressed(CompiledCodeData& code, std::istream& input) {
+    std::vector<char> decompressed = lzoDecompUnknownSize(input);
+    vectorwrapbuf<char> vbuf{ decompressed };
+    std::istream istr{ &vbuf };
+    readConstants(code, istr);
+}
+
+std::vector<char> ScriptSerializer::lzoDecompUnknownSize(std::istream& input) {
+    uint32_t decompresed_size = readT<uint32_t>(input);
+    uint8_t compression_type = readT<uint8_t>(input);
+    if (compression_type != 2) {
+        throw std::runtime_error("unknown compression type");
+    }
+    std::vector<char> output{};
+    output.resize(decompresed_size);
+    std::vector<char> compressed_data{};
+    compressed_data.resize(decompresed_size);
+    std::size_t remaining_size = decompresed_size;
+    std::size_t compressed_size = decompresed_size - remaining_size;
+    while (findLZOM4(input, compressed_data.data() + compressed_size, remaining_size)) {
+        compressed_size = decompresed_size - remaining_size;
+        std::size_t decompressed_actual = 0;
+        lzokay::EResult lzo_result = lzokay::decompress(reinterpret_cast<uint8_t*>(compressed_data.data()), compressed_size, reinterpret_cast<uint8_t*>(output.data()), decompresed_size, decompressed_actual);
+        if (lzo_result == lzokay::EResult::Success) {
+            return output;
+        }
+    }
+
+    throw std::runtime_error("unknown error when decompressing.");
+}
+
+bool ScriptSerializer::findLZOM4(std::istream& input, char* buf, std::size_t& size) {
+    while (size-- > 0 && (input.read(buf, 1), input.good())) {
+        if (*buf == 0x00 && *(buf - 1) == 0x00 && *(buf - 2) == 0x11) {
+            return true;
+        }
+
+        buf++;
+    }
+
+    return false;
+}
+
 void ScriptSerializer::readConstants(CompiledCodeData& code, std::istream& input) {
     auto constantCount = readT<uint16_t>(input);
 
@@ -556,6 +604,18 @@ void ScriptSerializer::collectCommandNames(const std::vector<ScriptInstruction>&
         }
 }
 
+void ScriptSerializer::readCommandNamesCompressed(CompiledCodeData& code, std::istream& input) {
+    std::vector<char> decompressed_buffer = lzoDecompUnknownSize(input);
+    vectorwrapbuf<char> buf{ decompressed_buffer };
+    std::istream is = std::istream(&buf);
+    uint16_t identifier_size = readT<uint16_t>(is);
+    std::cout << sizeof(uint16_t);
+    code.commandNameDirectory.reserve(identifier_size);
+    for (uint16_t i = 0; i < identifier_size; i++) {
+        std::string res = readString(is);
+        code.commandNameDirectory.emplace_back(std::move(res));
+    }
+}
 
 std::vector<char> ScriptSerializer::compressData(const std::vector<char>& data) {
     const size_t cBuffSize = ZSTD_compressBound(data.size());
@@ -638,8 +698,8 @@ std::vector<char> ScriptSerializer::decompressDataDictionary(const std::vector<c
 }
 
 STRINGTYPE ScriptSerializer::readString(std::istream& input) {
-    uint32_t length;
-    input.read(reinterpret_cast<char*>(&length) + 1, 3);
+    uint32_t length{};
+    input.read(reinterpret_cast<char*>(&length), 3);
 
 
     if constexpr (std::is_same_v<STRINGTYPE, std::string>) {
