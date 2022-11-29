@@ -29,9 +29,14 @@ private:
 
     static void writeConstants(const CompiledCodeData& code, std::ostream& output);
     static void readConstants(CompiledCodeData& code, std::istream& input);
+    static void readConstantsCompressed(CompiledCodeData& code, std::istream& input);
+
+    static std::vector<char> lzoDecompUnknownSize(std::istream& input);
+    static bool findLZOM4(std::istream& input, char* buf, std::size_t& size);
 
     static void collectCommandNames(const CompiledCodeData& code, std::set<STRINGTYPE>& directory);
     static void collectCommandNames(const std::vector<ScriptInstruction>& instructions, std::set<STRINGTYPE>& directory);
+    static void readCommandNamesCompressed(CompiledCodeData& code, std::istream& input);
 
     static std::vector<char> compressData(const std::vector<char>& data);
     static std::vector<char> compressDataDictionary(const std::vector<char>& data, const std::vector<char>& dictionary);
